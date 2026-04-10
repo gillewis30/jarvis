@@ -379,6 +379,59 @@ async def execute_action(intent: dict, projects: list = None) -> dict:
         return {"success": False, "confirmation": "", "project_dir": None}
 
 
+async def send_imessage(contact: str, message: str) -> dict:
+    """Send an iMessage to a contact via Messages.app."""
+    c = contact.replace('"', '\\"')
+    m = message.replace('"', '\\"').replace("\\", "\\\\")
+    script = f'''
+tell application "Messages"
+    set targetService to 1st account whose service type = iMessage
+    set targetBuddy to participant "{c}" of targetService
+    send "{m}" to targetBuddy
+end tell
+'''
+    proc = await asyncio.create_subprocess_exec(
+        "osascript", "-e", script,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    ok = proc.returncode == 0
+    if not ok:
+        log.warning(f"iMessage failed: {stderr.decode().strip()}")
+    return {
+        "success": ok,
+        "confirmation": f"Message sent to {contact}, sir." if ok else f"Couldn't send message to {contact}, sir.",
+    }
+
+
+async def draft_email(to_addr: str, subject: str, body: str) -> dict:
+    """Open a new email draft in Mail.app."""
+    t = to_addr.replace('"', '\\"')
+    s = subject.replace('"', '\\"')
+    b = body.replace('"', '\\"').replace("\\n", "\\\\n")
+    script = f'''
+tell application "Mail"
+    activate
+    set newMsg to make new outgoing message with properties {{subject:"{s}", content:"{b}", visible:true}}
+    tell newMsg
+        make new to recipient with properties {{address:"{t}"}}
+    end tell
+end tell
+'''
+    proc = await asyncio.create_subprocess_exec(
+        "osascript", "-e", script,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    ok = proc.returncode == 0
+    return {
+        "success": ok,
+        "confirmation": f"Draft ready to {to_addr}, sir." if ok else "Couldn't open Mail draft, sir.",
+    }
+
+
 def _generate_project_name(prompt: str) -> str:
     """Generate a kebab-case project folder name from the prompt."""
     # First: check for a quoted name like "tiktok-analytics-dashboard"

@@ -50,6 +50,14 @@ from memory import (
     format_tasks_for_voice, extract_memories, get_important_memories,
 )
 from notes_access import get_recent_notes, read_note, search_notes_apple, create_apple_note
+from mac_control import (
+    set_volume, get_volume, mute_volume, unmute_volume,
+    open_app, quit_app,
+    music_play, music_pause, music_next, music_previous, music_get_current, music_set_volume,
+    type_text, move_window, maximize_window,
+)
+from reminders_access import create_reminder, add_to_shopping_list, get_reminders, complete_reminder, format_reminders_for_voice
+from actions import send_imessage, draft_email
 from dispatch_registry import DispatchRegistry
 from planner import TaskPlanner, detect_planning_mode, BYPASS_PHRASES
 
@@ -107,8 +115,16 @@ YOUR CAPABILITIES (these are REAL and ACTIVE — you CAN do all of these RIGHT N
 - You CAN see what's on {user_name}'s screen — open windows, active apps, and screenshot vision
 - You CAN read {user_name}'s calendar — today's events, upcoming meetings, schedule overview
 - You CAN read {user_name}'s email (READ-ONLY) — unread count, recent messages, search by sender/subject. You CANNOT send, delete, or modify emails.
+- You CAN draft email replies — open a pre-filled compose window in Mail.app
+- You CAN send iMessages — via Messages.app (use contact name or phone number)
 - You CAN read Apple Notes and create NEW notes — but you CANNOT edit or delete existing notes
 - You CAN manage tasks — create, complete, and list to-do items with priorities and due dates
+- You CAN control Apple Music — play, pause, skip, previous, search by song/artist
+- You CAN control Mac volume — set level 0-100, mute, unmute
+- You CAN open any Mac app by name
+- You CAN type text into any focused app
+- You CAN create Reminders and add items to a Shopping List
+- You CAN give a morning briefing — weather, calendar, emails, and reminders combined
 - You CAN help plan {user_name}'s day — combine calendar events, tasks, and priorities into an organized plan
 - You CAN remember facts about {user_name} — preferences, decisions, goals. Use [ACTION:REMEMBER] to store important info.
 
@@ -203,6 +219,28 @@ CRITICAL: When the user asks about their SCREEN, what's RUNNING, or what they're
 - [ACTION:CREATE_NOTE] title ||| body — create a new Apple Note. For saving plans, ideas, lists.
   "save that as a note" → [ACTION:CREATE_NOTE] Day Plan March 19 ||| Morning: client calls. Afternoon: TikTok dashboard. Evening: JARVIS improvements.
 - [ACTION:READ_NOTE] title search — read an existing Apple Note by title keyword.
+- [ACTION:SEND_IMESSAGE] contact ||| message — send an iMessage via Messages.app. Contact can be a name or phone number.
+  "text John I'll be late" → [ACTION:SEND_IMESSAGE] John ||| I'll be late
+- [ACTION:DRAFT_EMAIL] to_address ||| subject ||| body — open a pre-filled draft in Mail.app.
+  "draft an email to boss@work.com about the meeting" → [ACTION:DRAFT_EMAIL] boss@work.com ||| Meeting Update ||| Hi, just wanted to follow up on the meeting...
+- [ACTION:MUSIC] play query OR pause OR next OR previous OR volume N — control Apple Music.
+  "play some jazz" → [ACTION:MUSIC] play jazz
+  "pause the music" → [ACTION:MUSIC] pause
+  "skip this track" → [ACTION:MUSIC] next
+  "turn music up to 80" → [ACTION:MUSIC] volume 80
+- [ACTION:VOLUME] level — set Mac system volume 0-100. "mute" or "unmute" also accepted.
+  "turn it down to 30" → [ACTION:VOLUME] 30
+  "mute" → [ACTION:VOLUME] mute
+- [ACTION:OPEN_APP] app name — open any Mac application by name.
+  "open Spotify" → [ACTION:OPEN_APP] Spotify
+- [ACTION:TYPE_TEXT] text — type text into the currently focused app.
+  "type hello world" → [ACTION:TYPE_TEXT] hello world
+- [ACTION:SET_REMINDER] title ||| notes — create a reminder in Reminders.app.
+  "remind me to call the dentist" → [ACTION:SET_REMINDER] Call the dentist |||
+- [ACTION:SHOPPING_LIST] item — add an item to the Shopping List in Reminders.
+  "add milk to my shopping list" → [ACTION:SHOPPING_LIST] milk
+- [ACTION:MORNING_BRIEFING] — give a full morning briefing: weather, calendar, emails, and reminders.
+  "good morning" or "what's my day look like" → [ACTION:MORNING_BRIEFING]
 
 You use Claude Code as your tool to build, research, and write code — but YOU are the one doing the work. Never say "Claude Code did X" or "Claude Code is asking" — say "I built X", "I'm checking on that", "I found X". You ARE the intelligence. Claude Code is just your hands.
 
@@ -738,7 +776,7 @@ def extract_action(response: str) -> tuple[str, dict | None]:
     Returns (clean_text_for_tts, action_dict_or_none).
     """
     match = _action_re.search(
-        r'\[ACTION:(BUILD|BROWSE|RESEARCH|OPEN_TERMINAL|PROMPT_PROJECT|ADD_TASK|ADD_NOTE|COMPLETE_TASK|REMEMBER|CREATE_NOTE|READ_NOTE|SCREEN)\]\s*(.*?)$',
+        r'\[ACTION:(BUILD|BROWSE|RESEARCH|OPEN_TERMINAL|PROMPT_PROJECT|ADD_TASK|ADD_NOTE|COMPLETE_TASK|REMEMBER|CREATE_NOTE|READ_NOTE|SCREEN|SEND_IMESSAGE|DRAFT_EMAIL|MUSIC|VOLUME|OPEN_APP|TYPE_TEXT|SET_REMINDER|SHOPPING_LIST|MORNING_BRIEFING)\]\s*(.*?)$',
         response, _action_re.DOTALL,
     )
     if match:
@@ -2298,6 +2336,86 @@ async def voice_handler(ws: WebSocket):
                                             except Exception:
                                                 pass
                                     asyncio.create_task(_read_and_report(embedded_action["target"].strip(), ws))
+
+                                elif embedded_action["action"] == "send_imessage":
+                                    parts = embedded_action["target"].split("|||")
+                                    contact = parts[0].strip() if len(parts) > 0 else ""
+                                    message = parts[1].strip() if len(parts) > 1 else ""
+                                    if contact and message:
+                                        result = await send_imessage(contact, message)
+                                        log.info(f"iMessage to {contact}: {result}")
+
+                                elif embedded_action["action"] == "draft_email":
+                                    parts = embedded_action["target"].split("|||")
+                                    to_addr = parts[0].strip() if len(parts) > 0 else ""
+                                    subject = parts[1].strip() if len(parts) > 1 else ""
+                                    body = parts[2].strip() if len(parts) > 2 else ""
+                                    asyncio.create_task(draft_email(to_addr, subject, body))
+
+                                elif embedded_action["action"] == "music":
+                                    cmd = embedded_action["target"].strip().lower()
+                                    if cmd == "pause":
+                                        asyncio.create_task(music_pause())
+                                    elif cmd == "next":
+                                        asyncio.create_task(music_next())
+                                    elif cmd == "previous":
+                                        asyncio.create_task(music_previous())
+                                    elif cmd.startswith("volume"):
+                                        try:
+                                            lvl = int(cmd.split()[-1])
+                                            asyncio.create_task(music_set_volume(lvl))
+                                        except ValueError:
+                                            pass
+                                    elif cmd.startswith("play"):
+                                        query = embedded_action["target"].strip()[4:].strip()
+                                        asyncio.create_task(music_play(query))
+                                    else:
+                                        asyncio.create_task(music_play(embedded_action["target"].strip()))
+
+                                elif embedded_action["action"] == "volume":
+                                    cmd = embedded_action["target"].strip().lower()
+                                    if cmd == "mute":
+                                        asyncio.create_task(mute_volume())
+                                    elif cmd == "unmute":
+                                        asyncio.create_task(unmute_volume())
+                                    else:
+                                        try:
+                                            lvl = int(cmd)
+                                            asyncio.create_task(set_volume(lvl))
+                                        except ValueError:
+                                            pass
+
+                                elif embedded_action["action"] == "open_app":
+                                    asyncio.create_task(open_app(embedded_action["target"].strip()))
+
+                                elif embedded_action["action"] == "type_text":
+                                    asyncio.create_task(type_text(embedded_action["target"].strip()))
+
+                                elif embedded_action["action"] == "set_reminder":
+                                    parts = embedded_action["target"].split("|||")
+                                    title = parts[0].strip() if len(parts) > 0 else embedded_action["target"].strip()
+                                    notes = parts[1].strip() if len(parts) > 1 else ""
+                                    asyncio.create_task(create_reminder(title, notes))
+
+                                elif embedded_action["action"] == "shopping_list":
+                                    asyncio.create_task(add_to_shopping_list(embedded_action["target"].strip()))
+
+                                elif embedded_action["action"] == "morning_briefing":
+                                    async def _morning_briefing(_ws):
+                                        reminders = await get_reminders()
+                                        rem_text = format_reminders_for_voice(reminders)
+                                        cal = _ctx_cache.get("calendar", "No calendar data.")
+                                        mail = _ctx_cache.get("mail", "No mail data.")
+                                        weather = _ctx_cache.get("weather", "")
+                                        briefing = f"Good morning, sir. {weather}. {cal} {mail} {rem_text}"
+                                        audio = await synthesize_speech(strip_markdown_for_tts(briefing))
+                                        if audio and _ws:
+                                            try:
+                                                await _ws.send_json({"type": "status", "state": "speaking"})
+                                                await _ws.send_json({"type": "audio", "data": base64.b64encode(audio).decode(), "text": briefing})
+                                            except Exception:
+                                                pass
+                                    asyncio.create_task(_morning_briefing(ws))
 
                 # Update history
                 history.append({"role": "user", "content": user_text})
