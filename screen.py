@@ -135,10 +135,10 @@ async def take_screenshot(display_only: bool = True) -> str | None:
             log.warning("Screenshot capture failed")
             return None
 
-        # Compress with sips: resize to max 1280px wide, convert to JPEG at 60% quality
+        # Compress with sips: resize to max 1024px, JPEG at 40% — keeps base64 under 5MB
         sips = await asyncio.create_subprocess_exec(
-            "sips", "-Z", "1280", "-s", "format", "jpeg",
-            "-s", "formatOptions", "60", tmp_path, "--out", jpg_path,
+            "sips", "-Z", "1024", "-s", "format", "jpeg",
+            "-s", "formatOptions", "40", tmp_path, "--out", jpg_path,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )

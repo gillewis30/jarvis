@@ -1564,6 +1564,43 @@ def detect_action_fast(text: str) -> dict | None:
                              "how expensive", "what's my bill"]):
         return {"action": "check_usage"}
 
+    # Music controls
+    if any(p in t for p in ["pause the music", "pause music", "stop the music", "stop music"]):
+        return {"action": "music", "target": "pause"}
+    if any(p in t for p in ["next song", "skip song", "skip track", "next track", "skip this"]):
+        return {"action": "music", "target": "next"}
+    if any(p in t for p in ["previous song", "previous track", "go back", "last song"]):
+        return {"action": "music", "target": "previous"}
+    if any(p in t for p in ["play music", "resume music", "play some music"]):
+        return {"action": "music", "target": "play"}
+    if re.search(r'play (.+) on apple music', t):
+        m = re.search(r'play (.+?) on apple music', t)
+        return {"action": "music", "target": f"play {m.group(1)}" if m else "play"}
+    if re.search(r'play some (.+)', t):
+        m = re.search(r'play some (.+)', t)
+        return {"action": "music", "target": f"play {m.group(1)}" if m else "play"}
+    if re.search(r'^play (.+)', t) and "play" in words[:2]:
+        m = re.search(r'^play (.+)', t)
+        return {"action": "music", "target": f"play {m.group(1)}" if m else "play"}
+
+    # Volume controls
+    if any(p in t for p in ["mute", "mute the sound", "mute volume"]) and "unmute" not in t:
+        return {"action": "volume", "target": "mute"}
+    if any(p in t for p in ["unmute", "unmute the sound", "turn sound back on"]):
+        return {"action": "volume", "target": "unmute"}
+    vol_match = re.search(r'(?:set volume|volume to|turn (?:it|volume) (?:up|down) to|set it to)\s+(\d+)', t)
+    if vol_match:
+        return {"action": "volume", "target": vol_match.group(1)}
+
+    # Morning briefing
+    if any(p in t for p in ["good morning", "morning briefing", "what's my day", "whats my day",
+                             "start my day", "daily briefing", "what does my day look like"]):
+        return {"action": "morning_briefing", "target": ""}
+
+    # Reminders
+    if any(p in t for p in ["my reminders", "what are my reminders", "show reminders", "list reminders"]):
+        return {"action": "check_reminders", "target": ""}
+
     return None  # Everything else goes to the LLM for conversational routing
 
 
@@ -2192,6 +2229,42 @@ async def voice_handler(ws: WebSocket):
                             response_text = format_tasks_for_voice(tasks)
                         elif action["action"] == "check_usage":
                             response_text = get_usage_summary()
+                        elif action["action"] == "music":
+                            cmd = action.get("target", "").lower()
+                            if cmd == "pause":
+                                result = await music_pause()
+                            elif cmd == "next":
+                                result = await music_next()
+                            elif cmd == "previous":
+                                result = await music_previous()
+                            elif cmd.startswith("play"):
+                                query = cmd[4:].strip()
+                                result = await music_play(query)
+                            else:
+                                result = await music_play(cmd)
+                            response_text = result["confirmation"]
+                        elif action["action"] == "volume":
+                            cmd = action.get("target", "").lower()
+                            if cmd == "mute":
+                                result = await mute_volume()
+                            elif cmd == "unmute":
+                                result = await unmute_volume()
+                            else:
+                                try:
+                                    result = await set_volume(int(cmd))
+                                except ValueError:
+                                    result = {"confirmation": "Couldn't parse that volume level, sir."}
+                            response_text = result["confirmation"]
+                        elif action["action"] == "morning_briefing":
+                            reminders = await get_reminders()
+                            rem_text = format_reminders_for_voice(reminders)
+                            cal = _ctx_cache.get("calendar", "No calendar data.")
+                            mail = _ctx_cache.get("mail", "No mail data.")
+                            weather = _ctx_cache.get("weather", "")
+                            response_text = f"Good morning, sir. {weather}. {cal} {mail} {rem_text}"
+                        elif action["action"] == "check_reminders":
+                            reminders = await get_reminders()
+                            response_text = format_reminders_for_voice(reminders)
                         else:
                             response_text = "Understood, sir."
                     else:
