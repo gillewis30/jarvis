@@ -1316,6 +1316,17 @@ return windowList
             except Exception as e:
                 log.debug(f"Context thread error: {e}")
 
+            # Mail — refresh every loop
+            try:
+                unread = get_unread_messages(limit=5)
+                if unread is not None:
+                    _ctx_cache["mail"] = format_messages_for_context(unread) if unread else "No unread emails."
+                else:
+                    recent = get_recent_messages(limit=5)
+                    _ctx_cache["mail"] = format_messages_for_context(recent) if recent else "No recent emails."
+            except Exception as e:
+                log.debug(f"Mail refresh error: {e}")
+
             # Weather — refresh every loop (30s is fine, API is fast)
             try:
                 import urllib.request, json as _json

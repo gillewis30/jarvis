@@ -106,16 +106,17 @@ end tell
 
 
 async def take_screenshot(display_only: bool = True) -> str | None:
-    """Take a screenshot and return base64-encoded PNG.
+    """Take a screenshot, compress it, and return base64-encoded JPEG.
 
     Args:
         display_only: If True, capture main display only. If False, all displays.
 
     Returns:
-        Base64-encoded PNG string, or None on failure.
+        Base64-encoded JPEG string (≤5MB), or None on failure.
     """
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
         tmp_path = f.name
+    jpg_path = tmp_path.replace(".png", ".jpg")
 
     try:
         cmd = ["screencapture", "-x"]  # -x = no sound
@@ -134,7 +135,17 @@ async def take_screenshot(display_only: bool = True) -> str | None:
             log.warning("Screenshot capture failed")
             return None
 
-        data = Path(tmp_path).read_bytes()
+        # Compress with sips: resize to max 1280px wide, convert to JPEG at 60% quality
+        sips = await asyncio.create_subprocess_exec(
+            "sips", "-Z", "1280", "-s", "format", "jpeg",
+            "-s", "formatOptions", "60", tmp_path, "--out", jpg_path,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await asyncio.wait_for(sips.communicate(), timeout=10)
+
+        img_path = jpg_path if Path(jpg_path).exists() else tmp_path
+        data = Path(img_path).read_bytes()
         log.info(f"Screenshot captured: {len(data)} bytes")
         return base64.b64encode(data).decode()
 
@@ -145,10 +156,11 @@ async def take_screenshot(display_only: bool = True) -> str | None:
         log.warning(f"Screenshot error: {e}")
         return None
     finally:
-        try:
-            Path(tmp_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+        for p in (tmp_path, jpg_path):
+            try:
+                Path(p).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 async def describe_screen(anthropic_client) -> str:
@@ -177,7 +189,7 @@ async def describe_screen(anthropic_client) -> str:
                             "type": "image",
                             "source": {
                                 "type": "base64",
-                                "media_type": "image/png",
+                                "media_type": "image/jpeg",
                                 "data": screenshot_b64,
                             },
                         },
