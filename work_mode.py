@@ -88,7 +88,7 @@ class WorkSession:
 
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(input=user_text.encode()),
-                timeout=300,
+                timeout=900,
             )
 
             response = stdout.decode().strip()
@@ -105,7 +105,7 @@ class WorkSession:
             return response
 
         except asyncio.TimeoutError:
-            log.error("claude -p timed out after 300s")
+            log.error("claude -p timed out after 900s")
             self._status = "timeout"
             return "That's taking longer than expected, sir. The operation timed out."
         except Exception as e:
