@@ -6,7 +6,7 @@
  */
 
 import { createOrb, type OrbState } from "./orb";
-import { createVoiceInput, createAudioPlayer } from "./voice";
+import { createVoiceInput, createAudioPlayer, isMobileBrowser, createMobileVoiceInput } from "./voice";
 import { createSocket } from "./ws";
 import { openSettings, checkFirstTimeSetup } from "./settings";
 import "./style.css";
@@ -228,6 +228,54 @@ btnSettings.addEventListener("click", (e) => {
   menuDropdown.style.display = "none";
   openSettings();
 });
+
+// ---------------------------------------------------------------------------
+// Mobile hold-to-talk
+// ---------------------------------------------------------------------------
+
+const btnTalk = document.getElementById("btn-talk") as HTMLButtonElement;
+
+if (isMobileBrowser()) {
+  // Show hold-to-talk button, hide mute button (not useful on mobile)
+  btnTalk.style.display = "flex";
+
+  const mobileVoice = createMobileVoiceInput(
+    (text: string) => {
+      audioPlayer.stop();
+      socket.send({ type: "transcript", text, isFinal: true });
+      transition("thinking");
+    },
+    (msg: string) => {
+      showError(msg);
+    },
+    (state) => {
+      if (state === "recording") {
+        btnTalk.classList.add("recording");
+        btnTalk.classList.remove("processing");
+      } else if (state === "processing") {
+        btnTalk.classList.remove("recording");
+        btnTalk.classList.add("processing");
+      } else {
+        btnTalk.classList.remove("recording", "processing");
+      }
+    }
+  );
+
+  // Hold to record, release to send
+  btnTalk.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    ensureAudioContext();
+    mobileVoice.startRecording();
+  });
+
+  btnTalk.addEventListener("pointerup", () => {
+    mobileVoice.stopRecording();
+  });
+
+  btnTalk.addEventListener("pointerleave", () => {
+    mobileVoice.stopRecording();
+  });
+}
 
 // First-time setup detection — check after a short delay for server readiness
 setTimeout(() => {

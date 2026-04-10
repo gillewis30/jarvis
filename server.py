@@ -34,7 +34,7 @@ from typing import Optional
 
 import anthropic
 import httpx
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -2501,6 +2501,50 @@ async def api_save_preferences(body: PreferencesUpdate):
     _write_env_key("HONORIFIC", body.honorific)
     _write_env_key("CALENDAR_ACCOUNTS", body.calendar_accounts)
     return {"success": True}
+
+# ---------------------------------------------------------------------------
+# Mobile transcription endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/api/transcribe")
+async def api_transcribe(audio: UploadFile = File(...)):
+    """Transcribe audio using Claude — used by mobile hold-to-talk."""
+    if not ANTHROPIC_API_KEY:
+        return JSONResponse(status_code=503, content={"error": "No API key"})
+    try:
+        audio_bytes = await audio.read()
+        audio_b64 = base64.b64encode(audio_bytes).decode()
+        media_type = audio.content_type or "audio/webm"
+
+        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "audio",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": audio_b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": "Transcribe the speech in this audio exactly as spoken. Return only the spoken words, nothing else.",
+                    },
+                ],
+            }],
+        )
+        transcript = response.content[0].text.strip()
+        log.info(f"Transcribed: {transcript!r}")
+        return {"transcript": transcript}
+    except Exception as e:
+        log.error(f"Transcription error: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)[:200]})
+
 
 # ---------------------------------------------------------------------------
 # Control endpoints (restart, fix-self)

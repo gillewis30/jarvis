@@ -99,6 +99,83 @@ export function createVoiceInput(
   };
 }
 
+export function isMobileBrowser(): boolean {
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+}
+
+// ---------------------------------------------------------------------------
+// Mobile voice input via MediaRecorder + server-side transcription
+// ---------------------------------------------------------------------------
+
+export function createMobileVoiceInput(
+  onTranscript: (text: string) => void,
+  onError: (msg: string) => void,
+  onStateChange: (state: "idle" | "recording" | "processing") => void
+): { startRecording(): void; stopRecording(): void } {
+  let mediaRecorder: MediaRecorder | null = null;
+  let chunks: Blob[] = [];
+  let stream: MediaStream | null = null;
+
+  const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+    ? "audio/webm;codecs=opus"
+    : MediaRecorder.isTypeSupported("audio/mp4")
+    ? "audio/mp4"
+    : "audio/webm";
+
+  async function startRecording() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = [];
+      mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = async () => {
+        stream?.getTracks().forEach((t) => t.stop());
+        stream = null;
+
+        if (chunks.length === 0) return;
+        onStateChange("processing");
+
+        const blob = new Blob(chunks, { type: mimeType });
+        const formData = new FormData();
+        formData.append("audio", blob, "recording.webm");
+
+        try {
+          const resp = await fetch("/api/transcribe", { method: "POST", body: formData });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          if (data.transcript?.trim()) {
+            onTranscript(data.transcript.trim());
+          } else {
+            onError("Couldn't hear you — try again");
+          }
+        } catch {
+          onError("Transcription failed — check server");
+        } finally {
+          onStateChange("idle");
+        }
+      };
+
+      mediaRecorder.start();
+      onStateChange("recording");
+    } catch {
+      onError("Microphone access denied");
+      onStateChange("idle");
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      mediaRecorder.stop();
+    }
+  }
+
+  return { startRecording, stopRecording };
+}
+
 // ---------------------------------------------------------------------------
 // Audio Player
 // ---------------------------------------------------------------------------

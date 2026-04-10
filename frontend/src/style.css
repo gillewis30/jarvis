@@ -417,3 +417,48 @@ html, body {
   display: flex;
   justify-content: flex-end;
 }
+
+/* ---------------------------------------------------------------------------
+   Mobile hold-to-talk button
+   --------------------------------------------------------------------------- */
+
+#btn-talk {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 2px solid rgba(14, 165, 233, 0.3);
+  background: rgba(14, 165, 233, 0.06);
+  color: rgba(14, 165, 233, 0.6);
+  cursor: pointer;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+
+#btn-talk.recording {
+  border-color: rgba(239, 68, 68, 0.7);
+  background: rgba(239, 68, 68, 0.12);
+  color: rgba(239, 68, 68, 0.9);
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+}
+
+#btn-talk.processing {
+  border-color: rgba(14, 165, 233, 0.5);
+  background: rgba(14, 165, 233, 0.12);
+  color: rgba(14, 165, 233, 0.8);
+  animation: pulse-talk 1s ease-in-out infinite;
+}
+
+@keyframes pulse-talk {
+  0%, 100% { box-shadow: 0 0 10px rgba(14, 165, 233, 0.2); }
+  50% { box-shadow: 0 0 24px rgba(14, 165, 233, 0.4); }
+}
